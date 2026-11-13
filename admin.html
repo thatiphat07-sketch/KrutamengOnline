@@ -71,6 +71,18 @@
 
     <!-- TAB 1: ORDER MANAGEMENT -->
     <div id="tab-orders-content" class="space-y-3">
+      <!-- 🏪 เปิด/ปิดร้าน -->
+      <div id="shop-status-panel" class="rounded-2xl border p-3 flex flex-wrap items-center justify-between gap-3 bg-green-50 border-green-300">
+        <div class="flex items-center gap-2">
+          <span id="shop-dot" class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+          <div>
+            <p id="shop-status-text" class="text-sm font-bold text-green-800">ร้านเปิดอยู่</p>
+            <p id="shop-status-sub" class="text-[10px] text-gray-500">ลูกค้าสั่งอาหารได้ตามปกติ</p>
+          </div>
+        </div>
+        <button id="btn-toggle-shop" onclick="toggleShopOpen()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm"><i class="fa-solid fa-store-slash"></i> ปิดร้าน</button>
+      </div>
+
       <div class="bg-amber-100 border border-amber-300 text-amber-900 px-4 py-2 rounded-xl text-xs flex justify-between items-center">
         <span class="flex items-center gap-2 font-medium"><i class="fa-solid fa-volume-high text-orange-600 animate-bounce"></i> ระบบแจ้งเตือนเสียงไซเรน & ออโต้ปริ้น</span>
         <button onclick="playNotificationSound()" class="bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold hover:bg-amber-700">🚨 ทดสอบเสียงไซเรน</button>
@@ -355,7 +367,7 @@
       shopPhone: "081-394-8240",
       bankName: "กสิกรไทย", accName: "ร้านส้มตำ", accNum: "123-4-56789-0",
       promptpayName: "ร้านส้มตำ", promptpayNum: "081-394-8240",
-      qrImage: "", logo: ""
+      qrImage: "", logo: "", shopOpen: true
     };
 
     function populatePresetMenuDropdown() {
@@ -743,6 +755,48 @@
       }
     }
 
+    // ================= 🏪 เปิด/ปิดร้าน =================
+    // ค่าจากชีตอาจกลับมาเป็นข้อความ "FALSE"/"false" จึงต้องแปลงให้ชัวร์
+    function isShopOpen() {
+      const v = billConfig.shopOpen;
+      return !(v === false || v === 0 || ['false', '0', 'ปิด', 'closed'].includes(String(v).trim().toLowerCase()));
+    }
+
+    function renderShopStatus() {
+      const panel = document.getElementById('shop-status-panel');
+      if (!panel) return;
+      const open = isShopOpen();
+      panel.className = 'rounded-2xl border p-3 flex flex-wrap items-center justify-between gap-3 ' + (open ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300');
+      document.getElementById('shop-dot').className = 'w-3 h-3 rounded-full inline-block ' + (open ? 'bg-green-500' : 'bg-red-500 animate-pulse');
+      const t = document.getElementById('shop-status-text');
+      t.textContent = open ? 'ร้านเปิดอยู่' : 'ร้านปิดอยู่';
+      t.className = 'text-sm font-bold ' + (open ? 'text-green-800' : 'text-red-800');
+      document.getElementById('shop-status-sub').textContent = open ? 'ลูกค้าสั่งอาหารได้ตามปกติ' : 'ลูกค้าสั่งอาหารไม่ได้ จนกว่าจะกดเปิดร้าน';
+      const btn = document.getElementById('btn-toggle-shop');
+      btn.className = 'text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm ' + (open ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700');
+      btn.innerHTML = open ? '<i class="fa-solid fa-store-slash"></i> ปิดร้าน' : '<i class="fa-solid fa-store"></i> เปิดร้าน';
+    }
+
+    async function toggleShopOpen() {
+      const wasOpen = isShopOpen();
+      if (wasOpen && !confirm('ยืนยันปิดร้าน? ลูกค้าจะสั่งอาหารไม่ได้จนกว่าจะเปิดร้านอีกครั้ง')) return;
+      const btn = document.getElementById('btn-toggle-shop');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> กำลังบันทึก...';
+      try {
+        const next = Object.assign({}, billConfig, { shopOpen: !wasOpen });
+        const saved = await apiCall('updateConfig', { token: adminToken(), config: next });
+        billConfig = Object.assign(next, saved || {});
+        billConfig.shopOpen = !wasOpen;
+        showToast(wasOpen ? 'ปิดร้านแล้ว ลูกค้าสั่งไม่ได้' : 'เปิดร้านแล้ว ลูกค้าสั่งได้');
+      } catch (e) {
+        alert('เปลี่ยนสถานะร้านไม่สำเร็จ: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        renderShopStatus();
+      }
+    }
+
     // ================= ตั้งค่าร้าน =================
     function loadBillConfigToForm() {
       document.getElementById('cfg-shop-name').value = billConfig.shopName || '';
@@ -761,6 +815,7 @@
         document.getElementById('qr-preview-box').innerHTML = `<img src="${attr(billConfig.qrImage)}" class="w-full h-full object-cover">`;
       }
       if (billConfig.shopName) document.getElementById('shop-sub-title').innerText = billConfig.shopName;
+      renderShopStatus();
     }
 
     function previewLogo(event) {
@@ -892,6 +947,7 @@
 
         orders = orders.map((order, index) => {
           const ord = { ...order };
+          ord._idx = index;
           ord.id = ord.id ?? ord.orderId ?? ('ORDER-' + (index + 1));
           ord.customer = ord.customer ?? ord.customerName ?? 'ลูกค้าทั่วไป';
           ord.type = ord.type ?? ord.orderType ?? '-';
@@ -914,6 +970,14 @@
             ord.displayTime = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
           }
           return ord;
+        });
+
+        // เรียงออเดอร์ล่าสุดไว้บนสุด
+        const tsOf = o => { const t = new Date(o.timestamp).getTime(); return isNaN(t) ? null : t; };
+        orders.sort((a, b) => {
+          const ta = tsOf(a), tb = tsOf(b);
+          if (ta !== null && tb !== null && ta !== tb) return tb - ta;
+          return b._idx - a._idx;
         });
 
         // ตรวจออเดอร์ใหม่จากรหัสออเดอร์ (แม่นกว่านับจำนวน เพราะลบออเดอร์แล้วจำนวนลดลงได้)
